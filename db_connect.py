@@ -1,62 +1,49 @@
-from neo4j import GraphDatabase
-import networkx as nx
+import os
 from datetime import datetime
+from dotenv import load_dotenv
+import networkx as nx
+from neo4j import GraphDatabase
 from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 
+load_dotenv()
+
+
 def get_db_driver():
-    """Initializes and returns the Neo4j driver connection."""
-    try:
-        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-        driver.verify_connectivity()
-        return driver
-    except Exception as e:
-        print(f"❌ Neo4j Connection failed! Error: {e}")
-        return None
+  """Initializes and returns the Neo4j driver connection."""
+  try:
+    driver = GraphDatabase.driver(
+        NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
+    )
+    driver.verify_connectivity()
+    return driver
+  except Exception as e:
+    print(f"Failed to connect to Neo4j: {e}")
+    raise
 
-def store_in_neo4j(driver, transactions):
-    """Parses and bulk-inserts Etherscan data into Neo4j."""
-    if not transactions:
-        return
 
-    cypher_query = '''
-    UNWIND $batch AS tx_data
-    MERGE (sender:Wallet {address: tx_data.from_address})
-    MERGE (receiver:Wallet {address: tx_data.to_address})
-    MERGE (tx:Transaction {hash: tx_data.tx_hash})
-    ON CREATE SET 
-        tx.timestamp = datetime(tx_data.timestamp),
-        tx.value_eth = tx_data.value_eth
-    MERGE (sender)-[:SENT]->(tx)
-    MERGE (tx)-[:TO]->(receiver)
-    '''
+transactions = [
+    {"sender": "Victim_Wallet", "receiver": "Scammer_1", "amount": 100.0},
+    {"sender": "Scammer_1", "receiver": "Burner_2", "amount": 92.0},
+    {"sender": "Scammer_1", "receiver": "Binance_Hot_Wallet", "amount": 8.0},
+    {"sender": "Burner_2", "receiver": "Burner_3", "amount": 85.0},
+    {"sender": "Burner_2", "receiver": "WazirX_Hot_Wallet", "amount": 7.0},
+    {"sender": "Burner_3", "receiver": "Burner_4", "amount": 85.0},
+]
 
-    batch_data = []
-    for tx in transactions:
-        val_eth = float(tx['value']) / 10**18
-        if val_eth == 0:
-            continue
-            
-        batch_data.append({
-            'from_address': tx['from'].lower(),
-            'to_address': tx['to'].lower() if tx['to'] else "contract_creation",
-            'tx_hash': tx['hash'],
-            'timestamp': datetime.fromtimestamp(int(tx['timeStamp'])).isoformat(),
-            'value_eth': val_eth
-        })
 
-    with driver.session() as session:
-        session.run(cypher_query, batch=batch_data)
-    print(f"💾 Saved {len(batch_data)} valid transactions to Neo4j.")
-
-def get_networkx_from_neo4j(driver):
-    """Pulls the current state of the Neo4j database into a NetworkX DiGraph."""
-    query = """
-    MATCH (s:Wallet)-[:SENT]->(tx:Transaction)-[:TO]->(r:Wallet)
-    RETURN s.address AS sender, r.address AS receiver, sum(tx.value_eth) AS total_amount
+def create_mock_graph():
+  cypher_query = """
+    UNWIND $transactions AS transaction
+    MERGE (sender:Wallet {address: transaction.sender})
+    MERGE (receiver:Wallet {address: transaction.receiver})
+    MERGE (sender)-[transfer:TRANSFERRED {amount: transaction.amount}]->(receiver)
+    ON CREATE SET transfer.sender = transaction.sender,
+                  transfer.receiver = transaction.receiver
     """
-    G = nx.DiGraph()
-    with driver.session() as session:
-        result = session.run(query)
-        for record in result:
-            G.add_edge(record["sender"], record["receiver"], weight=record["total_amount"])
-    return G
+  try:
+    with get_db_driver() as driver:
+      with driver.session() as session:
+        session.run(cypher_query, transactions=transactions)
+        print("Mock graph created successfully.")
+  except Exception as e:
+    print(f"Error creating mock graph: {e}")
