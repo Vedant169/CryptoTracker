@@ -1,18 +1,25 @@
-from neo4j import GraphDatabase
-from dotenv import load_dotenv
 import os
+from datetime import datetime
+from dotenv import load_dotenv
+import networkx as nx
+from neo4j import GraphDatabase
+from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 
 load_dotenv()
 
-# Neo4j database connection details
-URI = "neo4j://127.0.0.1:7687"
-DATABASE = os.environ.get("NEO4J_DATABASE", "neo4j")
 
-password = os.environ.get("NEO4J_PASSWORD")
-if not password:
-    raise RuntimeError("Add NEO4J_PASSWORD to your local .env file")
+def get_db_driver():
+  """Initializes and returns the Neo4j driver connection."""
+  try:
+    driver = GraphDatabase.driver(
+        NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
+    )
+    driver.verify_connectivity()
+    return driver
+  except Exception as e:
+    print(f"Failed to connect to Neo4j: {e}")
+    raise
 
-AUTH = ("neo4j", password)
 
 transactions = [
     {"sender": "Victim_Wallet", "receiver": "Scammer_1", "amount": 100.0},
@@ -25,7 +32,7 @@ transactions = [
 
 
 def create_mock_graph():
-    cypher_query = """
+  cypher_query = """
     UNWIND $transactions AS transaction
     MERGE (sender:Wallet {address: transaction.sender})
     MERGE (receiver:Wallet {address: transaction.receiver})
@@ -33,32 +40,10 @@ def create_mock_graph():
     ON CREATE SET transfer.sender = transaction.sender,
                   transfer.receiver = transaction.receiver
     """
-    
-    try:
-        # Database se connect karke query run kar rahe hain
-        with GraphDatabase.driver(URI, auth=AUTH) as driver:
-            driver.verify_connectivity()
-            driver.execute_query(
-                cypher_query,
-                transactions=transactions,
-                database=DATABASE,
-            )
-            records, _, _ = driver.execute_query(
-                """
-                MATCH (wallet:Wallet)
-                OPTIONAL MATCH ()-[transfer:TRANSFERRED]->()
-                RETURN count(DISTINCT wallet) AS wallets,
-                       count(transfer) AS transfers
-                """,
-                database=DATABASE,
-            )
-            counts = records[0]
-            print(
-                f"✅ Imported {len(transactions)} transactions into '{DATABASE}'. "
-                f"Wallets: {counts['wallets']}, transfers: {counts['transfers']}"
-            )
-    except Exception as e:
-        print("❌ Connection failed! Error:", e)
-
-if __name__ == "__main__":
-    create_mock_graph()
+  try:
+    with get_db_driver() as driver:
+      with driver.session() as session:
+        session.run(cypher_query, transactions=transactions)
+        print("Mock graph created successfully.")
+  except Exception as e:
+    print(f"Error creating mock graph: {e}")
