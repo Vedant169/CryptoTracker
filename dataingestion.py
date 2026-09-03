@@ -4,8 +4,9 @@ from config import ETHERSCAN_API_KEY
 def fetch_transactions(address):
     """Fetches transaction history for a specific address from Etherscan."""
     print(f"📡 Fetching data from Etherscan for: {address}")
-    url = "https://api.etherscan.io/api"
+    url = "https://api.etherscan.io/v2/api"
     params = {
+        "chainid": 1,
         "module": "account",
         "action": "txlist",
         "address": address,
