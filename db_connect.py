@@ -1,4 +1,5 @@
 from neo4j import GraphDatabase
+from getpass import getpass
 import os
 
 # Neo4j database connection details
@@ -6,10 +7,9 @@ URI = "neo4j://127.0.0.1:7687"
 DATABASE = os.environ.get("NEO4J_DATABASE", "neo4j")
 
 # Set NEO4J_PASSWORD in the environment before running this script.
-password = os.environ.get("NEO4J_PASSWORD")
-if not password:
-    raise RuntimeError("Set NEO4J_PASSWORD before running db_connect.py")
-
+password = os.environ.get("NEO4J_PASSWORD") or getpass(
+    "Neo4j password (input hidden): "
+)
 AUTH = ("neo4j", password)
 
 transactions = [
