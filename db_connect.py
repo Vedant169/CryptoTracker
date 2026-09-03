@@ -3,6 +3,7 @@ import os
 
 # Neo4j database connection details
 URI = "neo4j://127.0.0.1:7687"
+DATABASE = os.environ.get("NEO4J_DATABASE", "neo4j")
 
 # Set NEO4J_PASSWORD in the environment before running this script.
 password = os.environ.get("NEO4J_PASSWORD")
@@ -34,8 +35,26 @@ def create_mock_graph():
     try:
         # Database se connect karke query run kar rahe hain
         with GraphDatabase.driver(URI, auth=AUTH) as driver:
-            driver.execute_query(cypher_query, transactions=transactions)
-            print(f"✅ {len(transactions)} transactions saved to Neo4j Database!")
+            driver.verify_connectivity()
+            driver.execute_query(
+                cypher_query,
+                transactions=transactions,
+                database=DATABASE,
+            )
+            records, _, _ = driver.execute_query(
+                """
+                MATCH (wallet:Wallet)
+                OPTIONAL MATCH ()-[transfer:TRANSFERRED]->()
+                RETURN count(DISTINCT wallet) AS wallets,
+                       count(transfer) AS transfers
+                """,
+                database=DATABASE,
+            )
+            counts = records[0]
+            print(
+                f"✅ Imported {len(transactions)} transactions into '{DATABASE}'. "
+                f"Wallets: {counts['wallets']}, transfers: {counts['transfers']}"
+            )
     except Exception as e:
         print("❌ Connection failed! Error:", e)
 
