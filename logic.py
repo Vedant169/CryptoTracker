@@ -1,98 +1,41 @@
 import networkx as nx
+from config import KNOWN_VASPS
 
-# ==========================================
-# 1. MOCK DATA GENERATION (The Graph Input)
-# ==========================================
-# Yeh hamara fake transaction data hai. 
-# Dhyan se dekho: 'Scammer_1' ne 100 ETH receive kiye, 
-# 92 ETH aage bhej diye (Burner_2 ko) aur 8 ETH Binance par nikal liye. (Yeh ek Peel Chain hai!)
-transactions = [
-    {"sender": "Victim_Wallet", "receiver": "Scammer_1", "amount": 100.0},
-    {"sender": "Scammer_1", "receiver": "Burner_2", "amount": 92.0},
-    {"sender": "Scammer_1", "receiver": "Binance_Hot_Wallet", "amount": 8.0},
-    {"sender": "Burner_2", "receiver": "Burner_3", "amount": 85.0},
-    {"sender": "Burner_2", "receiver": "WazirX_Hot_Wallet", "amount": 7.0},
-    {"sender": "Burner_3", "receiver": "Burner_4", "amount": 85.0}
-]
+def check_for_vasp(G, start_node):
+    """Checks if there is a path from the victim to any known exchange."""
+    for vasp in KNOWN_VASPS:
+        vasp_lower = vasp.lower()
+        if vasp_lower in G.nodes:
+            try:
+                path = nx.shortest_path(G, source=start_node.lower(), target=vasp_lower)
+                print(f"\n🚨 SCAMMER CAUGHT! Funds reached known VASP: {vasp}")
+                print(" -> ".join(path))
+                return True
+            except nx.NetworkXNoPath:
+                continue
+    return False
 
-# Known exchanges ki list jo hum trace karna chahte hain
-KNOW_VASPS = ["Binance_Hot_Wallet", "WazirX_Hot_Wallet"]
-
-# ==========================================
-# 2. APPLY NETWORKX (Graph Construction)
-# ==========================================
-# Directed Graph (DiGraph) banayenge kyunki paisa ek hi direction mein flow hota hai
-G = nx.DiGraph()
-
-# Graph mein Edges (lines) aur Nodes (wallets) add kar rahe hain
-for tx in transactions:
-    G.add_edge(tx["sender"], tx["receiver"], weight=tx["amount"])
-
-print("--- GRAPH CREATED SUCCESSFULLY ---")
-print(f"Total Wallets (Nodes): {G.number_of_nodes()}")
-print(f"Total Transactions (Edges): {G.number_of_edges()}\n")
-
-# ==========================================
-# 3. DSA LOGIC: SHORTEST PATH (BFS)
-# ==========================================
-# Humara goal hai Victim se Exchange tak ka sabse chota raasta (Shortest Path) dhoondhna
-print("--- 🔍 TRACING PATH TO EXCHANGES ---")
-start_node = "Victim_Wallet"
-
-for vasp in KNOW_VASPS:
-    try:
-        # NetworkX ka in-built shortest path algorithm (BFS based)
-        path = nx.shortest_path(G, source=start_node, target=vasp)
-        print(f"🚨 Path found to {vasp}:")
-        print(" -> ".join(path))
-    except nx.NetworkXNoPath:
-        print(f"No path found to {vasp}")
-print("\n")
-
-# ==========================================
-# 4. PROBLEM-SOLVING LOGIC: PEEL CHAIN DETECTION (Heuristics)
-# ==========================================
-# Logic: Agar ek wallet apna 90%+ fund ek naye wallet mein bhejta hai aur 
-# baaki <10% kisi aur jagah (exchange) par, toh wo Peel Chain hai.
-
-print("--- 🕵️‍♂️ RUNNING HEURISTIC: PEEL CHAIN DETECTION ---")
-
-def detect_peel_chains(graph):
-    flagged_wallets = []
+def detect_next_suspicious_wallets(G, current_wallet):
+    """
+    Returns a list of receiving wallets that look like part of a peel chain 
+    (i.e., received a large percentage of the outgoing funds).
+    """
+    suspicious_receivers = []
+    current_wallet = current_wallet.lower()
     
-    # Har node (wallet) ko check karenge
-    for node in graph.nodes():
-        # Sirf unhi wallets ko check karo jinhone aage 2 ya zyada jagah paise bheje hain
-        out_edges = list(graph.out_edges(node, data=True))
-        
-        if len(out_edges) >= 2:
-            # Total paisa kitna bahar gaya is node se?
-            total_out = sum([data['weight'] for _, _, data in out_edges])
-            
-            has_major_split = False
-            has_minor_split = False
-            
-            for _, receiver, data in out_edges:
-                percentage = (data['weight'] / total_out) * 100
-                
-                # Check for > 90% split (moving to next burner)
-                if percentage >= 85.0:  # Threshold thoda 85-90% ke beech rakhte hain real-world mein
-                    has_major_split = True
-                
-                # Check for < 15% split (cashing out to exchange)
-                if percentage <= 15.0:
-                    has_minor_split = True
-            
-            # Agar dono conditions true hain, toh yeh mathematical proof hai Peel Chain ka
-            if has_major_split and has_minor_split:
-                flagged_wallets.append(node)
-                
-    return flagged_wallets
+    if current_wallet not in G.nodes:
+        return suspicious_receivers
 
-# Function call karke result print karo
-suspicious_nodes = detect_peel_chains(G)
+    out_edges = list(G.out_edges(current_wallet, data=True))
+    if not out_edges:
+        return suspicious_receivers
 
-if suspicious_nodes:
-    print(f"⚠️ PEEL CHAIN DETECTED! High-Risk Wallets Flagged: {suspicious_nodes}")
-else:
-    print("✅ No Peel Chains detected in this graph.")
+    total_out = sum([data['weight'] for _, _, data in out_edges])
+    
+    for _, receiver, data in out_edges:
+        if total_out > 0:
+            percentage = (data['weight'] / total_out) * 100
+            if percentage >= 20.0:
+                suspicious_receivers.append(receiver)
+                
+    return suspicious_receivers
