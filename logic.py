@@ -1,4 +1,7 @@
 import networkx as nx
+import os
+
+from neo4j import GraphDatabase
 
 # ==========================================
 # 1. MOCK DATA GENERATION (The Graph Input)
@@ -96,3 +99,28 @@ if suspicious_nodes:
     print(f"⚠️ PEEL CHAIN DETECTED! High-Risk Wallets Flagged: {suspicious_nodes}")
 else:
     print("✅ No Peel Chains detected in this graph.")
+
+# ==========================================
+# 5. NEO4J INTEGRATION (Pushing to Database)
+# ==========================================
+print("--- 💾 SENDING DATA TO NEO4J ---")
+
+URI = "neo4j://localhost:7687"
+password = os.environ.get("NEO4J_PASSWORD")
+
+if password:
+    query = """
+    UNWIND $transactions AS transaction
+    MERGE (sender:Wallet {address: transaction.sender})
+    MERGE (receiver:Wallet {address: transaction.receiver})
+    MERGE (sender)-[:TRANSFERRED {amount: transaction.amount}]->(receiver)
+    """
+
+    try:
+        with GraphDatabase.driver(URI, auth=("neo4j", password)) as driver:
+            driver.execute_query(query, transactions=transactions)
+        print(f"✅ {len(transactions)} transactions successfully written to Neo4j.")
+    except Exception as error:
+        print(f"❌ Neo4j connection failed: {error}")
+else:
+    print("ℹ️ Neo4j skipped. Set NEO4J_PASSWORD to write transactions to the database.")
