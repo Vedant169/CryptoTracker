@@ -5,7 +5,11 @@ import os
 URI = "neo4j://127.0.0.1:7687"
 
 # Set NEO4J_PASSWORD in the environment before running this script.
-AUTH = ("neo4j", os.environ["NEO4J_PASSWORD"])
+password = os.environ.get("NEO4J_PASSWORD")
+if not password:
+    raise RuntimeError("Set NEO4J_PASSWORD before running db_connect.py")
+
+AUTH = ("neo4j", password)
 
 transactions = [
     {"sender": "Victim_Wallet", "receiver": "Scammer_1", "amount": 100.0},
