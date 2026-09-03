@@ -23,7 +23,6 @@ def fetch_transactions(address):
         
     data = response.json()
     if data.get("status") != "1":
-        print(f"⚠️ Etherscan API Error: {data.get('message')} - {data.get('result')}")
         return []
-
+        
     return data["result"]

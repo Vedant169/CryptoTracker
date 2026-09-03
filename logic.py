@@ -2,61 +2,43 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 import networkx as nx
-from neo4j import GraphDatabase
-from db_connect import get_db_driver, transactions
+from config import KNOWN_VASPS
 
-load_dotenv()
+def check_for_vasp(G, start_node):
+    """Checks if there is a path from the victim to any known exchange."""
+    for vasp in KNOWN_VASPS:
+        vasp_lower = vasp.lower()
+        if vasp_lower in G.nodes:
+            try:
+                path = nx.shortest_path(G, source=start_node.lower(), target=vasp_lower)
+                print(f"\n🚨 SCAMMER CAUGHT! Funds reached known VASP: {vasp}")
+                print(" -> ".join(path))
+                return True
+            except nx.NetworkXNoPath:
+                continue
+    return False
 
-
-def detect_peel_chains(G, current_wallet=None):
-  """Detects peel chains in transaction graph based on split thresholds."""
-  flagged_wallets = []
-
-  # If a specific wallet is targeted, evaluate its outbound edges
-  nodes_to_check = [current_wallet] if current_wallet else G.nodes()
-
-  for node in nodes_to_check:
-    out_edges = list(G.out_edges(node, data=True))
-    if not out_edges:
-      continue
-
-    total_out = sum([data.get("weight", 0) for _, _, data in out_edges])
-    if total_out <= 0:
-      continue
-
-    has_major_split = False
-    has_minor_split = False
-    suspicious_receivers = []
-
-    for _, receiver, data in out_edges:
-      percentage = (data.get("weight", 0) / total_out) * 100
-
-      if percentage >= 20.0:
-        suspicious_receivers.append(receiver)
-      if percentage >= 70.0:
-        has_major_split = True
-      if percentage <= 15.0:
-        has_minor_split = True
-
-    if has_major_split and has_minor_split:
-      flagged_wallets.append(node)
-
-  return flagged_wallets
-
-
-def sync_transactions_to_neo4j(tx_list=None):
-  """Pushes processed transactions to Neo4j using centralized driver."""
-  tx_data = tx_list or transactions
-  query = """
-    UNWIND $transactions AS transaction
-    MERGE (sender:Wallet {address: transaction.sender})
-    MERGE (receiver:Wallet {address: transaction.receiver})
-    MERGE (sender)-[:TRANSFERRED {amount: transaction.amount}]->(receiver)
+def detect_next_suspicious_wallets(G, current_wallet):
     """
-  try:
-    with get_db_driver() as driver:
-      with driver.session() as session:
-        session.run(query, transactions=tx_data)
-        print(f"✅ {len(tx_data)} transactions successfully written to Neo4j.")
-  except Exception as error:
-    print(f"❌ Neo4j connection failed: {error}")
+    Returns a list of receiving wallets that look like part of a peel chain 
+    (i.e., received a large percentage of the outgoing funds).
+    """
+    suspicious_receivers = []
+    current_wallet = current_wallet.lower()
+    
+    if current_wallet not in G.nodes:
+        return suspicious_receivers
+
+    out_edges = list(G.out_edges(current_wallet, data=True))
+    if not out_edges:
+        return suspicious_receivers
+
+    total_out = sum([data['weight'] for _, _, data in out_edges])
+    
+    for _, receiver, data in out_edges:
+        if total_out > 0:
+            percentage = (data['weight'] / total_out) * 100
+            if percentage >= 20.0:
+                suspicious_receivers.append(receiver)
+                
+    return suspicious_receivers

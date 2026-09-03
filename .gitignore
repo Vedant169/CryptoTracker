@@ -4,7 +4,5 @@ __pycache__/
 *.pkl
 .env
 .env.*
-elliptic_bitcoin_dataset/venv/
 venv/
-!.env.example
-elliptic_bitcoin_dataset/
+elliptic_bitcoin_dataset/venv/
