@@ -1,15 +1,17 @@
 from neo4j import GraphDatabase
-from getpass import getpass
+from dotenv import load_dotenv
 import os
+
+load_dotenv()
 
 # Neo4j database connection details
 URI = "neo4j://127.0.0.1:7687"
 DATABASE = os.environ.get("NEO4J_DATABASE", "neo4j")
 
-# Set NEO4J_PASSWORD in the environment before running this script.
-password = os.environ.get("NEO4J_PASSWORD") or getpass(
-    "Neo4j password (input hidden): "
-)
+password = os.environ.get("NEO4J_PASSWORD")
+if not password:
+    raise RuntimeError("Add NEO4J_PASSWORD to your local .env file")
+
 AUTH = ("neo4j", password)
 
 transactions = [

@@ -1,7 +1,10 @@
 import networkx as nx
 import os
 
+from dotenv import load_dotenv
 from neo4j import GraphDatabase
+
+load_dotenv()
 
 # ==========================================
 # 1. MOCK DATA GENERATION (The Graph Input)
