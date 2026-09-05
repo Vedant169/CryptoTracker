@@ -6,3 +6,5 @@ __pycache__/
 .env.*
 venv/
 elliptic_bitcoin_dataset/venv/
+
+elliptic_bitcoin_dataset/
