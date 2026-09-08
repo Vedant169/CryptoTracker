@@ -92,10 +92,12 @@ def trace_funds(initial_victim, max_depth=3):
 # FASTAPI SERVER PIPELINE (FRONTEND TEAM)
 # ==========================================
 from fastapi import FastAPI, BackgroundTasks
+from routers import analysis
 from fastapi.middleware.cors import CORSMiddleware
 from neo4j import GraphDatabase
 
 app = FastAPI(title="Crypto Fraud Tracing API")
+app.include_router(analysis.router)
 
 # CORS setup (Taaki React frontend block na ho)
 app.add_middleware(
@@ -122,9 +124,10 @@ def analyze_wallet(tx_data: dict):
     edges = []
     
     # Database se direct graph data lana
+  # UPDATE: Humne 'Account' label aur 'eth_address' property add kar di hai
     cypher_query = """
-    MATCH path = (start)-[*1..2]-(m)
-    WHERE start.address = $wallet_id OR start.id = $wallet_id
+    MATCH path = (start:Account)-[*1..2]-(m)
+    WHERE start.eth_address = $wallet_id
     UNWIND relationships(path) AS r
     RETURN startNode(r) AS n, r, endNode(r) AS m LIMIT 200
     """
