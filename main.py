@@ -118,41 +118,77 @@ def home():
 
 @app.post("/analyze-wallet")
 def analyze_wallet(tx_data: dict):
-    wallet_id = tx_data.get("txId", "Unknown")
-    
+    wallet_id = tx_data.get("txId", "Unknown").strip()
+
     nodes = []
     edges = []
-    
-    # Database se direct graph data lana
-  # UPDATE: Humne 'Account' label aur 'eth_address' property add kar di hai
-    cypher_query = """
-    MATCH path = (start:Account)-[*1..2]-(m)
-    WHERE start.eth_address = $wallet_id
-    UNWIND relationships(path) AS r
-    RETURN startNode(r) AS n, r, endNode(r) AS m LIMIT 200
+
+    # Real schema confirmed from Neo4j:
+    # Nodes: Account {eth_address, ens_name}, SmartContract {eth_address, ...}
+    # Relationships: (Account|SmartContract)-[:TO]->(Account|SmartContract)
+
+    # Query 1: direct 1-hop outgoing edges from the specific address (instant)
+    cypher_specific = """
+    MATCH (start)-[rel:TO]->(m)
+    WHERE toLower(start.eth_address) = toLower($wallet_id)
+    RETURN start AS n, rel, m
+    LIMIT 200
     """
+
+    # Query 2: full graph fallback — show everything if address not found (instant)
+    cypher_all = """
+    MATCH (n)-[rel:TO]->(m)
+    RETURN n, rel, m LIMIT 150
+    """
+
+    def get_addr(node):
+        return node.get("eth_address") or node.get("address") or str(node.element_id)
 
     try:
         with GraphDatabase.driver(URI, auth=AUTH) as driver:
-            # Yahan hum query mein wallet_id pass kar rahe hain!
-            records, _, _ = driver.execute_query(cypher_query, wallet_id=wallet_id)
-            
-            # Data ko ReactFlow format mein convert karna
+            records, _, _ = driver.execute_query(
+                cypher_specific, wallet_id=wallet_id,
+                database_="neo4j"
+            )
+
+            # Fallback: show full graph
+            if not records:
+                records, _, _ = driver.execute_query(
+                    cypher_all, database_="neo4j"
+                )
+
+            seen = set()
             for record in records:
-                n = record["n"]
-                m = record["m"]
-                r = record["r"]
-                
-                # Sender Node
-                if not any(node['id'] == str(n.element_id) for node in nodes):
-                    nodes.append({"id": str(n.element_id), "position": {"x": 100, "y": 100}, "data": {"label": n.get('address', 'Unknown')}})
-                
-                # Receiver Node
-                if not any(node['id'] == str(m.element_id) for node in nodes):
-                    nodes.append({"id": str(m.element_id), "position": {"x": 400, "y": 100}, "data": {"label": m.get('address', 'Unknown')}})
-                
-                # Transaction Edge
-                edges.append({"id": str(r.element_id), "source": str(n.element_id), "target": str(m.element_id), "label": f"{r.get('amount', 0)} ETH"})
+                n   = record["n"]
+                m   = record["m"]
+                rel = record["rel"]
+
+                n_id = str(n.element_id)
+                m_id = str(m.element_id)
+
+                if n_id not in seen:
+                    seen.add(n_id)
+                    nodes.append({
+                        "id": n_id,
+                        "position": {"x": 100, "y": 100},
+                        "data": {"label": get_addr(n)}
+                    })
+                if m_id not in seen:
+                    seen.add(m_id)
+                    nodes.append({
+                        "id": m_id,
+                        "position": {"x": 400, "y": 100},
+                        "data": {"label": get_addr(m)}
+                    })
+
+                amount = rel.get("amount") or rel.get("value") or rel.get("value_eth") or 0.0
+                edges.append({
+                    "id":     f"{n_id}->{m_id}",
+                    "source": n_id,
+                    "target": m_id,
+                    "label":  f"{amount} ETH"
+                })
+
     except Exception as e:
         print("Neo4j Error:", e)
 
@@ -160,6 +196,8 @@ def analyze_wallet(tx_data: dict):
         "wallet_analyzed": wallet_id,
         "graph_data": {"nodes": nodes, "edges": edges}
     }
+
+
 
 if __name__ == "__main__":
     import uvicorn

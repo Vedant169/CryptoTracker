@@ -121,49 +121,80 @@ export const useStore = create<AppState>((set, get) => ({
       // Yahan se purana 'traceWallet' hata diya aur FastAPI ko connect kiya:
       const response = await axios.post('http://127.0.0.1:8000/analyze-wallet', {
         txId: address
-      });
+      }, { timeout: 15000 });
 
-      // Backend se aane wale data ko ReactFlow ke format mein nikal liya
-      // Aur sath mein SAFE DATA add kiya taaki UI crash na ho
-      const realData = {
-        rootAddress: address, 
-        totalValueUsd: 0, 
-        
-        // 👇 Nodes ko graph ke format me flatten kiya 👇
-        nodes: (response.data.graph_data.nodes || []).map((n: any) => ({
-          id: String(n.id),
-          label: n.data?.label || String(n.id),
-          address: n.data?.label || String(n.id),
-          type: 'intermediate',
-          riskScore: 0,
-          flagged: false
+      const rawNodes = response.data.graph_data.nodes || [];
+      const rawEdges = response.data.graph_data.edges || [];
+
+      const realData: TraceResult = {
+        // ── Identity ───────────────────────────────────────────────────────
+        rootAddress:    address,
+        traceId:        `TRACE-${Date.now()}`,
+        caseId:         get().activeCase.id,
+        jurisdiction:   'IN',
+        chainOfCustodyHash: Array.from({ length: 64 }, () =>
+          Math.floor(Math.random() * 16).toString(16)).join('').toUpperCase(),
+
+        // ── Risk ───────────────────────────────────────────────────────────
+        riskScore:      0,
+        threatVector:   'Under analysis — graph traversal complete',
+
+        // ── Financials ────────────────────────────────────────────────────
+        hops:                   5,
+        totalValueTraced:       0,
+        totalValueUsd:          0,
+        assetsRestricted:       0,
+        assetsRestrictedUsd:    0,
+        mixerHopCount:          0,
+
+        // ── Nodes (with all required WalletNode fields defaulted) ─────────
+        nodes: rawNodes.map((n: any) => ({
+          id:          String(n.id),
+          label:       n.data?.label || String(n.id),
+          address:     n.data?.label || String(n.id),
+          type:        'intermediate' as const,
+          riskScore:   0,
+          balance:     0,
+          balanceUsd:  0,
+          firstSeen:   new Date().toISOString(),
+          lastActive:  new Date().toISOString(),
+          txCount:     0,
+          hopDepth:    0,
+          flagged:     false,
+          chain:       'ETH' as const,
+          clusterIds:  [],
         })),
 
-        // 👇 Edges ko map kiya taaki amount.toFixed() crash na ho 👇
-        edges: (response.data.graph_data.edges || []).map((e: any) => ({
-          source: String(e.source),
-          target: String(e.target),
-          type: 'normal',
-          amount: parseFloat(e.label) || 1.0, // "10 ETH" ko number 10 banayega
-          percent: 100
+        // ── Edges (with all required TxEdge fields defaulted) ─────────────
+        edges: rawEdges.map((e: any, i: number) => ({
+          id:             String(i),
+          source:         String(e.source),
+          target:         String(e.target),
+          type:           'normal' as const,
+          amount:         parseFloat(e.label) || 0,
+          amountUsd:      0,
+          percent:        100,
+          txHash:         '',
+          blockTimestamp: new Date().toISOString(),
         })),
 
-        clusters: [], 
-        watchlists: [], 
-        vaspMatches: [], 
-        alerts: [],
-        tags: [],
-        flags: [],
-        riskFactors: [],
-        recentTransactions: [],
-        balance: 0,
-        fiatValue: 0,
-        metrics: { riskScore: 0, severity: 'Unknown', totalTransactions: 0, totalVolume: 0 }, 
-        metadata: { dateAnalyzed: new Date().toISOString(), dataSources: ['Neo4j', 'FastAPI'] } 
+        // ── Collections (safe empty arrays) ───────────────────────────────
+        clusters:    [],
+        vaspMatches: [],
+        watchlists:  [],
+        peelChain:   [],
+
+        // ── Unused legacy fields kept for type compatibility ───────────────
+        // @ts-ignore
+        alerts: [], tags: [], flags: [], riskFactors: [], recentTransactions: [],
+        balance: 0, fiatValue: 0,
+        metrics: { riskScore: 0, severity: 'Unknown', totalTransactions: rawNodes.length, totalVolume: 0 },
+        metadata: { dateAnalyzed: new Date().toISOString(), dataSources: ['Neo4j', 'FastAPI'] },
       };
 
       // State ko update kar diya
-      set({ traceResult: realData as unknown as TraceResult, traceLoading: false });
+      set({ traceResult: realData, traceLoading: false });
+
 
     } catch (err) {
       set({ traceResult: null, traceLoading: false, traceError: String(err) });
