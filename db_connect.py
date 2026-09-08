@@ -1,11 +1,8 @@
-import os
 from datetime import datetime
-from dotenv import load_dotenv
 import networkx as nx
 from neo4j import GraphDatabase
-import networkx as nx
-from datetime import datetime
 from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
+
 
 def get_db_driver():
     """Initializes and returns the Neo4j driver connection."""
@@ -14,43 +11,96 @@ def get_db_driver():
         driver.verify_connectivity()
         return driver
     except Exception as e:
-        print(f"❌ Neo4j Connection failed! Error: {e}")
+        print(f"Neo4j Connection failed! Error: {e}")
         return None
 
-def store_in_neo4j(driver, transactions):
-    """Parses and bulk-inserts Etherscan data into Neo4j."""
-    if not transactions:
+
+def store_in_neo4j(driver, data):
+    """
+    Parses and bulk-inserts Etherscan data into Neo4j.
+    Accepts the dict returned by fetch_transactions: {"normal": [...], "erc20": [...]}
+    """
+    if not data:
         return
 
-    cypher_query = '''
+    normal_txs = data.get("normal", [])
+    erc20_txs = data.get("erc20", [])
+
+    # --- Normal Transactions ---
+    cypher_normal = '''
     UNWIND $batch AS tx_data
     MERGE (sender:Wallet {address: tx_data.from_address})
     MERGE (receiver:Wallet {address: tx_data.to_address})
     MERGE (tx:Transaction {hash: tx_data.tx_hash})
-    ON CREATE SET 
+    ON CREATE SET
         tx.timestamp = datetime(tx_data.timestamp),
-        tx.value_eth = tx_data.value_eth
+        tx.value_eth = tx_data.value_eth,
+        tx.is_contract_creation = tx_data.is_contract_creation
     MERGE (sender)-[:SENT]->(tx)
     MERGE (tx)-[:TO]->(receiver)
     '''
 
-    batch_data = []
-    for tx in transactions:
-        val_eth = float(tx['value']) / 10**18
-        if val_eth == 0:
-            continue
-            
-        batch_data.append({
-            'from_address': tx['from'].lower(),
-            'to_address': tx['to'].lower() if tx['to'] else "contract_creation",
-            'tx_hash': tx['hash'],
-            'timestamp': datetime.fromtimestamp(int(tx['timeStamp'])).isoformat(),
-            'value_eth': val_eth
-        })
+    batch_normal = []
+    for tx in normal_txs:
+        try:
+            val_eth = float(tx['value']) / 10**18
+            if val_eth == 0:
+                continue
+            batch_normal.append({
+                'from_address': tx['from'].lower(),
+                'to_address': tx['to'].lower() if tx['to'] else "contract_creation",
+                'tx_hash': tx['hash'],
+                'timestamp': datetime.fromtimestamp(int(tx['timeStamp'])).isoformat(),
+                'value_eth': val_eth,
+                'is_contract_creation': tx.get('to') is None or tx.get('to') == ''
+            })
+        except Exception:
+            pass
+
+    # --- ERC20 Token Transactions ---
+    cypher_erc20 = '''
+    UNWIND $batch AS tx_data
+    MERGE (sender:Wallet {address: tx_data.from_address})
+    MERGE (receiver:Wallet {address: tx_data.to_address})
+    MERGE (tx:TokenTransfer {hash: tx_data.tx_hash})
+    ON CREATE SET
+        tx.timestamp = datetime(tx_data.timestamp),
+        tx.value_token = tx_data.value_token,
+        tx.token_name = tx_data.token_name,
+        tx.token_symbol = tx_data.token_symbol,
+        tx.contract_address = tx_data.contract_address
+    MERGE (sender)-[:SENT_TOKEN]->(tx)
+    MERGE (tx)-[:TOKEN_TO]->(receiver)
+    '''
+
+    batch_erc20 = []
+    for tx in erc20_txs:
+        try:
+            decimals = int(tx.get('tokenDecimal', 18))
+            val_token = float(tx['value']) / (10**decimals)
+            if val_token == 0:
+                continue
+            batch_erc20.append({
+                'from_address': tx['from'].lower(),
+                'to_address': tx['to'].lower(),
+                'tx_hash': tx['hash'],
+                'timestamp': datetime.fromtimestamp(int(tx['timeStamp'])).isoformat(),
+                'value_token': val_token,
+                'token_name': tx.get('tokenName', 'Unknown'),
+                'token_symbol': tx.get('tokenSymbol', 'Unknown'),
+                'contract_address': tx.get('contractAddress', '').lower()
+            })
+        except Exception:
+            pass
 
     with driver.session() as session:
-        session.run(cypher_query, batch=batch_data)
-    print(f"💾 Saved {len(batch_data)} valid transactions to Neo4j.")
+        if batch_normal:
+            session.run(cypher_normal, batch=batch_normal)
+        if batch_erc20:
+            session.run(cypher_erc20, batch=batch_erc20)
+
+    print(f"Saved {len(batch_normal)} normal + {len(batch_erc20)} ERC20 transactions to Neo4j.")
+
 
 def get_networkx_from_neo4j(driver):
     """Pulls the current state of the Neo4j database into a NetworkX DiGraph."""
@@ -64,5 +114,3 @@ def get_networkx_from_neo4j(driver):
         for record in result:
             G.add_edge(record["sender"], record["receiver"], weight=record["total_amount"])
     return G
-
-    
