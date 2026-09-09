@@ -79,13 +79,14 @@ def _fetch_tx_timestamps(address: str) -> list[dict[str, Any]]:
     """Pull raw tx timestamps for forwarding velocity analysis."""
     from neo4j import GraphDatabase
     cypher = """
-    MATCH (s:Wallet {address: $addr})-[:SENT]->(tx:Transaction)-[:TO]->(r:Wallet)
+    MATCH (s {eth_address: $addr})-[r:TO]->(rec)
+    WHERE r.eth_value IS NOT NULL
     RETURN
-        s.address  AS sender,
-        r.address  AS receiver,
-        tx.value_eth AS amount_eth,
-        toString(tx.timestamp) AS ts
-    ORDER BY tx.timestamp
+        s.eth_address  AS sender,
+        rec.eth_address  AS receiver,
+        toFloat(r.eth_value) AS amount_eth,
+        r.timestamp AS ts
+    ORDER BY r.timestamp
     """
     records_out = []
     try:
@@ -109,13 +110,15 @@ def _fetch_deep_txs(address: str, hops: int = 5) -> list[dict[str, Any]]:
     """Pull raw transactions up to N hops deep for the dossier."""
     from neo4j import GraphDatabase
     cypher = f"""
-    MATCH path = (start:Wallet {{address: $addr}})-[:SENT*1..{hops}]->(tx:Transaction)-[:TO]->(end:Wallet)
-    WITH start, tx, end LIMIT 200
+    MATCH path = (start {{eth_address: $addr}})-[:TO*1..{hops}]->(end)
+    WITH start, end, relationships(path) AS rels
+    UNWIND rels AS r
+    WITH start, end, r LIMIT 200
     RETURN
-        start.address  AS from_addr,
-        end.address    AS to_addr,
-        tx.value_eth   AS value_eth,
-        toString(tx.timestamp) AS ts
+        start.eth_address  AS from_addr,
+        end.eth_address    AS to_addr,
+        toFloat(r.eth_value) AS value_eth,
+        r.timestamp AS ts
     """
     rows = []
     try:

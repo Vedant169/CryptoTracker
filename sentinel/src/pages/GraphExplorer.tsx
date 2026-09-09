@@ -27,7 +27,7 @@ export function GraphExplorer() {
       neo4j: {
         serverUrl: "bolt://localhost:7687", 
         serverUser: "neo4j",
-        serverPassword: "Ved@1609", 
+        serverPassword: "Saksham123!", 
       },
       labels: {
         // Targets the exact label from your image

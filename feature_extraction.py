@@ -4,6 +4,9 @@ Feature Extraction Module
 Pulls aggregated wallet-level statistics directly from Neo4j using Cypher.
 Returns a single-row DataFrame matching the 48 columns of transaction_dataset.csv,
 ready to be fed into the LightGBM model for inference.
+
+Updated to use the NeoJ4-Ethereum repo's graph schema:
+    (:Account {eth_address})-[:TO {hash, eth_value, status, ...}]->(:Account)
 """
 
 import pandas as pd
@@ -60,78 +63,89 @@ FEATURE_COLUMNS = [
 
 
 # ---------------------------------------------------------------------------
-# Cypher query that computes all 48 features natively inside Neo4j.
-# This avoids pulling thousands of raw rows into Python.
+# Cypher query updated for the NeoJ4-Ethereum repo's schema:
+#   (:Account {eth_address})-[:TO {hash, eth_value, status, timestamp,
+#                                   value_token, token_name, ...}]->(:Account)
+#
+# Normal ETH transactions have r.eth_value set.
+# ERC20 token transfers have r.value_token, r.token_name set.
 # ---------------------------------------------------------------------------
 FEATURE_QUERY = """
-// ---- Normal Transaction Stats ----
-OPTIONAL MATCH (w:Wallet {address: $address})-[:SENT]->(txOut:Transaction)-[:TO]->(rec:Wallet)
+// ---- Outgoing (sent) normal ETH transactions ----
+OPTIONAL MATCH (w {eth_address: $address})-[rOut:TO]->(rec)
+WHERE rOut.eth_value IS NOT NULL
 WITH w,
-     collect(txOut) AS sentTxs,
-     collect(DISTINCT rec.address) AS uniqueSentTo
+     collect(rOut) AS sentRels,
+     collect(DISTINCT rec.eth_address) AS uniqueSentTo
 
-OPTIONAL MATCH (sender:Wallet)-[:SENT]->(txIn:Transaction)-[:TO]->(w)
-WITH w, sentTxs, uniqueSentTo,
-     collect(txIn) AS recTxs,
-     collect(DISTINCT sender.address) AS uniqueRecFrom
+// ---- Incoming (received) normal ETH transactions ----
+OPTIONAL MATCH (sender)-[rIn:TO]->(w)
+WHERE rIn.eth_value IS NOT NULL
+WITH w, sentRels, uniqueSentTo,
+     collect(rIn) AS recRels,
+     collect(DISTINCT sender.eth_address) AS uniqueRecFrom
 
-// Sent value stats
-WITH w, sentTxs, recTxs, uniqueSentTo, uniqueRecFrom,
-     size(sentTxs) AS sentCount,
-     size(recTxs) AS recCount,
-     CASE WHEN size(sentTxs) > 0
-          THEN reduce(s = 0.0, t IN sentTxs | s + t.value_eth) ELSE 0.0 END AS totalSent,
-     CASE WHEN size(recTxs) > 0
-          THEN reduce(s = 0.0, t IN recTxs | s + t.value_eth) ELSE 0.0 END AS totalRec,
+// Sent/Received value stats
+WITH w, sentRels, recRels, uniqueSentTo, uniqueRecFrom,
+     size(sentRels) AS sentCount,
+     size(recRels) AS recCount,
+     CASE WHEN size(sentRels) > 0
+          THEN reduce(s = 0.0, r IN sentRels | s + toFloat(r.eth_value)) ELSE 0.0 END AS totalSent,
+     CASE WHEN size(recRels) > 0
+          THEN reduce(s = 0.0, r IN recRels | s + toFloat(r.eth_value)) ELSE 0.0 END AS totalRec,
      size(uniqueSentTo) AS uniqSentTo,
      size(uniqueRecFrom) AS uniqRecFrom
 
-// Contract creations
-OPTIONAL MATCH (w)-[:SENT]->(ccTx:Transaction {is_contract_creation: true})
-WITH w, sentTxs, recTxs, sentCount, recCount, totalSent, totalRec,
+// Contract creations (is_contract_creation property on the :TO relationship)
+OPTIONAL MATCH (w)-[ccRel:TO]->(cc)
+WHERE ccRel.is_contract_creation = true
+WITH w, sentRels, recRels, sentCount, recCount, totalSent, totalRec,
      uniqSentTo, uniqRecFrom,
-     count(ccTx) AS contractsCreated
+     count(ccRel) AS contractsCreated
 
-// Sent timestamps for average-time calculation
-WITH w, sentTxs, recTxs, sentCount, recCount, totalSent, totalRec,
+// Timestamps for average-time calculation (stored as ISO strings on :TO rels)
+WITH w, sentRels, recRels, sentCount, recCount, totalSent, totalRec,
      uniqSentTo, uniqRecFrom, contractsCreated,
-     [t IN sentTxs | t.timestamp.epochSeconds] AS sentTimes,
-     [t IN recTxs  | t.timestamp.epochSeconds] AS recTimes
+     [r IN sentRels WHERE r.timestamp IS NOT NULL | datetime(r.timestamp).epochSeconds] AS sentTimes,
+     [r IN recRels  WHERE r.timestamp IS NOT NULL | datetime(r.timestamp).epochSeconds] AS recTimes
 
 // All timestamps combined for time-diff
 WITH *, (sentTimes + recTimes) AS allTimes
 
-// Sent value lists for min/max/avg
+// Value lists for min/max/avg
 WITH *,
-     [t IN sentTxs | t.value_eth] AS sentVals,
-     [t IN recTxs  | t.value_eth] AS recVals
+     [r IN sentRels | toFloat(r.eth_value)] AS sentVals,
+     [r IN recRels  | toFloat(r.eth_value)] AS recVals
 
 // ---- ERC20 Token Transfer Stats ----
-OPTIONAL MATCH (w)-[:SENT_TOKEN]->(tkOut:TokenTransfer)-[:TOKEN_TO]->(tkRec:Wallet)
-WITH *, collect(tkOut) AS sentTokenTxs,
-     collect(DISTINCT tkRec.address) AS erc20UniqSentAddr
+// ERC20 transfers are :TO relationships with value_token set
+OPTIONAL MATCH (w)-[tkOut:TO]->(tkRec)
+WHERE tkOut.value_token IS NOT NULL
+WITH *, collect(tkOut) AS sentTokenRels,
+     collect(DISTINCT tkRec.eth_address) AS erc20UniqSentAddr
 
-OPTIONAL MATCH (tkSender:Wallet)-[:SENT_TOKEN]->(tkIn:TokenTransfer)-[:TOKEN_TO]->(w)
-WITH *, collect(tkIn) AS recTokenTxs,
-     collect(DISTINCT tkSender.address) AS erc20UniqRecAddr
+OPTIONAL MATCH (tkSender)-[tkIn:TO]->(w)
+WHERE tkIn.value_token IS NOT NULL
+WITH *, collect(tkIn) AS recTokenRels,
+     collect(DISTINCT tkSender.eth_address) AS erc20UniqRecAddr
 
 // ERC20 contract-directed transfers
-OPTIONAL MATCH (w)-[:SENT_TOKEN]->(tkContract:TokenTransfer)-[:TOKEN_TO]->(cAddr:Wallet)
-     WHERE cAddr.address STARTS WITH '0x'
-WITH *, collect(DISTINCT cAddr.address) AS erc20UniqRecContractAddr
+OPTIONAL MATCH (w)-[tkC:TO]->(cAddr)
+WHERE tkC.value_token IS NOT NULL AND tkC.contract_address IS NOT NULL
+WITH *, collect(DISTINCT cAddr.eth_address) AS erc20UniqRecContractAddr
 
 // Token value lists
 WITH *,
-     [t IN sentTokenTxs | t.value_token] AS sentTokenVals,
-     [t IN recTokenTxs  | t.value_token] AS recTokenVals,
-     [t IN sentTokenTxs | t.timestamp.epochSeconds] AS sentTokenTimes,
-     [t IN recTokenTxs  | t.timestamp.epochSeconds] AS recTokenTimes,
-     size(sentTokenTxs) + size(recTokenTxs) AS totalErc20Tnxs
+     [r IN sentTokenRels | r.value_token] AS sentTokenVals,
+     [r IN recTokenRels  | r.value_token] AS recTokenVals,
+     [r IN sentTokenRels WHERE r.timestamp IS NOT NULL | datetime(r.timestamp).epochSeconds] AS sentTokenTimes,
+     [r IN recTokenRels  WHERE r.timestamp IS NOT NULL | datetime(r.timestamp).epochSeconds] AS recTokenTimes,
+     size(sentTokenRels) + size(recTokenRels) AS totalErc20Tnxs
 
-// Unique token names
+// Unique token names (no apoc dependency — use list comprehension + size)
 WITH *,
-     size(apoc.coll.toSet([t IN sentTokenTxs | t.token_name])) AS erc20UniqSentTokenName,
-     size(apoc.coll.toSet([t IN recTokenTxs  | t.token_name])) AS erc20UniqRecTokenName
+     size([r IN sentTokenRels WHERE r.token_name IS NOT NULL | r.token_name]) AS erc20UniqSentTokenName,
+     size([r IN recTokenRels  WHERE r.token_name IS NOT NULL | r.token_name]) AS erc20UniqRecTokenName
 
 RETURN
   // ---- Normal Stats ----

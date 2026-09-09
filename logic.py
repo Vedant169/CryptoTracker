@@ -38,7 +38,7 @@ def detect_next_suspicious_wallets(G, current_wallet):
     for _, receiver, data in out_edges:
         if total_out > 0:
             percentage = (data['weight'] / total_out) * 100
-            if percentage >= 20.0:
+            if percentage >= 5.0:
                 suspicious_receivers.append(receiver)
                 
     return suspicious_receivers

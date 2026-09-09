@@ -181,7 +181,7 @@ def analyze_wallet(tx_data: dict):
                         "data": {"label": get_addr(m)}
                     })
 
-                amount = rel.get("amount") or rel.get("value") or rel.get("value_eth") or 0.0
+                amount = rel.get("eth_value") or rel.get("value_token") or 0.0
                 edges.append({
                     "id":     f"{n_id}->{m_id}",
                     "source": n_id,

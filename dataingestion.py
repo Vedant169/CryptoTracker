@@ -27,11 +27,21 @@ def _call_etherscan(address, action):
 
 
 def fetch_transactions(address):
-    """Fetches both Normal and ERC20 token transactions for a wallet."""
-    print(f"Fetching Normal + ERC20 data from Etherscan for: {address}")
+    """Fetches Normal, Internal, ERC20, ERC721, and ERC1155 token transactions for a wallet."""
+    print(f"Fetching transaction data from Etherscan for: {address}")
 
     normal_txs = _call_etherscan(address, "txlist")
+    internal_txs = _call_etherscan(address, "txlistinternal")
     erc20_txs = _call_etherscan(address, "tokentx")
+    erc721_txs = _call_etherscan(address, "tokennfttx")
+    erc1155_txs = _call_etherscan(address, "token1155tx")
 
-    print(f"  Retrieved {len(normal_txs)} normal and {len(erc20_txs)} ERC20 transactions.")
-    return {"normal": normal_txs, "erc20": erc20_txs}
+    print(f"  Retrieved {len(normal_txs)} normal, {len(internal_txs)} internal, "
+          f"{len(erc20_txs)} ERC20, {len(erc721_txs)} ERC721, {len(erc1155_txs)} ERC1155 transactions.")
+    return {
+        "normal": normal_txs,
+        "internal": internal_txs,
+        "erc20": erc20_txs,
+        "erc721": erc721_txs,
+        "erc1155": erc1155_txs
+    }
