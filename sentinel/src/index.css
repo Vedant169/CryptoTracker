@@ -232,3 +232,18 @@ html, body, #root {
 }
 .ticker-inner { display: flex; animation: ticker-scroll 35s linear infinite; white-space: nowrap; }
 .ticker-inner:hover { animation-play-state: paused; }
+
+/* ── Loading spinner ──────────────────────────────────────────────────────── */
+@keyframes spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ── NeoVis container overrides ───────────────────────────────────────────── */
+#neo4j-viz canvas {
+  outline: none;
+}
+#neo4j-viz .vis-network {
+  outline: none;
+}
+

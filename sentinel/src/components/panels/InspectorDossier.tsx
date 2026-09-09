@@ -8,10 +8,12 @@ export function InspectorDossier() {
   const traceResult = useStore((s) => s.traceResult);
   const result = traceResult;
 
-  const riskColor = (score: number) =>
-    score >= 80 ? 'var(--color-secondary-dim)' :
-    score >= 50 ? '#f59e0b' :
-    'var(--color-primary)';
+  const riskColor = (score: number | undefined) => {
+    const s = score ?? 0;
+    return s >= 80 ? 'var(--color-secondary-dim)' :
+           s >= 50 ? '#f59e0b' :
+           'var(--color-primary)';
+  };
 
   // Find cluster membership
   const nodeClusters = result?.clusters.filter(
@@ -51,7 +53,7 @@ export function InspectorDossier() {
             <div style={{ marginBottom: '0.75rem', padding: '0.5rem', background: 'var(--color-surface-2)', borderRadius: '0.25rem', border: '1px solid var(--color-border)' }}>
               <div className="label-sm" style={{ color: 'var(--color-text-faint)', marginBottom: '2px' }}>TARGET WALLET</div>
               <div className="code-terminal" style={{ color: 'var(--color-tertiary)', wordBreak: 'break-all', fontSize: '10px' }}>
-                {selectedNode.address}
+                {selectedNode.address || selectedNode.id || 'Unknown'}
               </div>
               {selectedNode.ensName && (
                 <div className="code-terminal" style={{ color: 'var(--color-primary)', marginTop: '2px' }}>
@@ -59,13 +61,13 @@ export function InspectorDossier() {
                 </div>
               )}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.375rem' }}>
-                <span className="badge-base badge-neutral">{selectedNode.chain}</span>
+                <span className="badge-base badge-neutral">{selectedNode.chain || 'ETH'}</span>
                 <span className="badge-base" style={{
                   background: riskColor(selectedNode.riskScore) + '22',
                   color: riskColor(selectedNode.riskScore),
                   border: `1px solid ${riskColor(selectedNode.riskScore)}`,
                 }}>
-                  RISK {selectedNode.riskScore}
+                  RISK {selectedNode.riskScore ?? 0}
                 </span>
                 {selectedNode.flagged && (
                   <span className="badge-base badge-secondary">
@@ -78,11 +80,11 @@ export function InspectorDossier() {
             {/* Node metadata */}
             <div style={{ marginBottom: '0.75rem' }}>
               <MetaRow label="RESOLUTION" value={`dep:pool.ramnaeth`} />
-              <MetaRow label="FIRST SEEN" value={new Date(selectedNode.firstSeen).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) + ' UTC'} />
-              <MetaRow label="LAST ACTIVE" value={timeSince(selectedNode.lastActive)} highlight />
-              <MetaRow label="HOLDINGS" value={`${selectedNode.balance.toFixed(2)} ETH ($${selectedNode.balanceUsd.toLocaleString()})`} />
-              <MetaRow label="TX COUNT" value={selectedNode.txCount.toLocaleString()} />
-              <MetaRow label="HOP DEPTH" value={`${selectedNode.hopDepth}`} />
+              <MetaRow label="FIRST SEEN" value={selectedNode.firstSeen ? new Date(selectedNode.firstSeen).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) + ' UTC' : '—'} />
+              <MetaRow label="LAST ACTIVE" value={selectedNode.lastActive ? timeSince(selectedNode.lastActive) : '—'} highlight />
+              <MetaRow label="HOLDINGS" value={`${(selectedNode.balance ?? 0).toFixed(2)} ETH ($${(selectedNode.balanceUsd ?? 0).toLocaleString()})`} />
+              <MetaRow label="TX COUNT" value={(selectedNode.txCount ?? 0).toLocaleString()} />
+              <MetaRow label="HOP DEPTH" value={`${selectedNode.hopDepth ?? 0}`} />
             </div>
 
             {/* Peel ratio */}
