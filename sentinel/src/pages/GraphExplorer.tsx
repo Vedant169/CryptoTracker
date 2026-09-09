@@ -1,8 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { InvestigationBanner } from '../components/summary/InvestigationBanner';
 import { BottomSummaryStrip } from '../components/summary/BottomSummaryStrip';
-// We are replacing GraphCanvas with the Neovis container directly
-// import { GraphCanvas } from '../components/graph/GraphCanvas'; 
+
+// 🔥 THE MAGIC IS BACK: Uncommented our real canvas!
+import { GraphCanvas } from '../components/graph/GraphCanvas'; 
+
 import { GraphControls } from '../components/graph/GraphControls';
 import { SystemHealthPanel } from '../components/panels/SystemHealthPanel';
 import { InspectorDossier } from '../components/panels/InspectorDossier';
@@ -12,51 +14,8 @@ export function GraphExplorer() {
   const traceResult = useStore((s) => s.traceResult);
   const result = traceResult;
 
-  // Initialize the Neo4j Graph
-  useEffect(() => {
-    // @ts-ignore
-    const NeoVis = window.NeoVis;
-
-    if (!NeoVis) {
-      console.error("Neovis library not found. Make sure it's in index.html.");
-      return;
-    }
-
-    const config = {
-      containerId: "neo4j-viz",
-      neo4j: {
-        serverUrl: "bolt://localhost:7687", 
-        serverUser: "neo4j",
-        serverPassword: "Ved@1609", 
-      },
-      labels: {
-        // Targets the exact label from your image
-        "SmartContract": { 
-          caption: "eth_address", // Tells Neovis to display this property's text
-          color: "#B584D7",       // A purple hex code to match your Neo4j browser
-          size: 25
-        }
-        
-        // Note: If you also have nodes for regular users/wallets (like the pink ones 
-        // in your earlier screenshot), you can add a second block right here like this:
-        //
-        // "Wallet": {
-        //   caption: "eth_address",
-        //   color: "#ECA5C8", // Pink
-        //   size: 25
-        // }
-      },
-      relationships: {
-        "TO": {
-          caption: true,
-          thickness: 2
-        }
-      },
-      initialCypher: "MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 100"
-    };
-    const viz = new NeoVis.default(config);
-    viz.render();
-  }, []);
+  // 🗑️ REMOVED THE NEOVIS DIRECT CONNECTION 🗑️
+  // Our FastAPI backend handles the DB now, not the frontend!
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -94,10 +53,9 @@ export function GraphExplorer() {
             <SystemHealthPanel />
           </div>
 
-          {/* Graph Canvas — Neovis goes here and takes all remaining vertical space */}
+          {/* Graph Canvas — Our fixed ForceGraph goes here! */}
           <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', position: 'relative' }}>
-            {/* The Neo4j container fills the parent div completely */}
-            <div id="neo4j-viz" style={{ width: '100%', height: '100%', outline: 'none' }}></div>
+            <GraphCanvas />
           </div>
 
           {/* Bottom strip */}

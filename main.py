@@ -6,6 +6,7 @@ from dataingestion import fetch_transactions
 from db_connect import get_db_driver, store_in_neo4j, get_networkx_from_neo4j
 from logic import check_for_vasp, detect_next_suspicious_wallets
 from feature_extraction import get_ml_features
+from tracer import trace_funds # Upar import kar lo
 
 # --- ML Model Loading ---
 # Pure LightGBM model saved in native text format.
@@ -13,6 +14,7 @@ from feature_extraction import get_ml_features
 model = None
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'pure_crypto_fraud_model.txt')
 try:
+    # pyrefly: ignore [missing-import]
     import lightgbm as lgb
     if os.path.exists(MODEL_PATH):
         model = lgb.Booster(model_file=MODEL_PATH)
@@ -120,14 +122,20 @@ def home():
 def analyze_wallet(tx_data: dict):
     wallet_id = tx_data.get("txId", "Unknown").strip()
 
+    # ==============================================================
+    # 1. FETCH DATA (Etherscan -> Neo4j via Tracer)
+    # ==============================================================
+    if wallet_id != "Unknown":
+        print(f"[+] API Triggered! Fetching live trace for: {wallet_id}")
+        # Yeh line Etherscan hit karegi aur Neo4j update karegi
+        trace_success = trace_funds(wallet_id, max_depth=1)
+    
+    # ==============================================================
+    # 2. BUILD GRAPH (Neo4j -> React Frontend)
+    # ==============================================================
     nodes = []
     edges = []
 
-    # Real schema confirmed from Neo4j:
-    # Nodes: Account {eth_address, ens_name}, SmartContract {eth_address, ...}
-    # Relationships: (Account|SmartContract)-[:TO]->(Account|SmartContract)
-
-    # Query 1: direct 1-hop outgoing edges from the specific address (instant)
     cypher_specific = """
     MATCH (start)-[rel:TO]->(m)
     WHERE toLower(start.eth_address) = toLower($wallet_id)
@@ -135,7 +143,6 @@ def analyze_wallet(tx_data: dict):
     LIMIT 200
     """
 
-    # Query 2: full graph fallback — show everything if address not found (instant)
     cypher_all = """
     MATCH (n)-[rel:TO]->(m)
     RETURN n, rel, m LIMIT 150
@@ -151,13 +158,13 @@ def analyze_wallet(tx_data: dict):
                 database_="neo4j"
             )
 
-            # Fallback: show full graph
+            # Fallback: show full graph if exact wallet not found
             if not records:
                 records, _, _ = driver.execute_query(
                     cypher_all, database_="neo4j"
                 )
 
-            seen = set()
+            seen = set()  
             for record in records:
                 n   = record["n"]
                 m   = record["m"]

@@ -12,7 +12,7 @@ def _call_etherscan(address, action):
         "address": address,
         "startblock": 0,
         "endblock": 99999999,
-        "page": 1,
+        "page": 2,
         "offset": 100,
         "sort": "desc",
         "apikey": ETHERSCAN_API_KEY
